@@ -3,7 +3,6 @@ package pl.xmasbank.client;
 import java.util.ArrayList;
 import java.util.List;
 import net.minecraft.client.Minecraft;
-import net.minecraft.Util;
 import pl.xmasbank.HistoryEntry;
 import pl.xmasbank.Net;
 
@@ -39,7 +38,7 @@ public final class BankClient {
 
 	public static void onBalance(Net.BalancePayload p) {
 		balance = p.balance();
-		long now = Util.getMillis();
+		long now = System.currentTimeMillis();
 		if (p.delta() != 0) {
 			popups.add(new Popup(p.delta(), now));
 			while (popups.size() > 4) {
