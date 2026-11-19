@@ -48,7 +48,6 @@ public final class BankHud {
 			int h = 11;
 			int x = sw - w - 3;
 			int y = 3;
-			g.fill(x, y, x + w, y + h, 0x78000000);
 			g.blit(RenderPipelines.GUI_TEXTURED, BankHud.COIN, x + 2, y + 1, 0, 0, 9, 9, 32, 32, 32, 32);
 			g.text(font, text, x + 2 + 9 + 3, y + 2, 0xFFFFFFFF, true);
 
