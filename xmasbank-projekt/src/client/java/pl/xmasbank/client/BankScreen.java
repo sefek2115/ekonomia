@@ -8,6 +8,7 @@ import java.util.List;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.components.PlayerFaceExtractor;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.CharacterEvent;
 import net.minecraft.client.input.KeyEvent;
@@ -18,15 +19,29 @@ import net.minecraft.network.chat.Component;
 import pl.xmasbank.HistoryEntry;
 import pl.xmasbank.Net;
 
-/** Okno banku: przelew + historia. Rysowane w całości ręcznie, skaluje się do małych okien. */
+/** Okno banku (ciemnozielone, świąteczne): przelew + historia. Rysowane ręcznie, skaluje się do małych okien. */
 public class BankScreen extends Screen {
-	private static final int W = 256;
-	private static final int H = 200;
+	private static final int W = 330;
+	private static final int H = 168;
 
-	private static final int RED = 0xFFB3262E;
-	private static final int GREEN = 0xFF2E7D32;
+	// kolory
+	private static final int PANEL = 0xFF1E4A2B;
+	private static final int FIELD = 0xFF0F2A18;
+	private static final int LABEL = 0xFFB8CCB8;
+	private static final int RED = 0xFFC62E3A;
+	private static final int GREEN = 0xFF2E9B3A;
+	private static final int SOFT = 0xFF4F7F52;
+	private static final int GREY = 0xFF6E6E6E;
 	private static final int[] BULBS = {0xFFE53935, 0xFF43A047, 0xFFFFC107, 0xFF1E88E5};
 	private static final SimpleDateFormat DATE = new SimpleDateFormat("dd.MM HH:mm");
+
+	// układ (współrzędne lokalne okna)
+	private static final int TAB_X = 12, TAB_Y = 29, TAB_W = 60, TAB_H = 14;
+	private static final int HIST_X = 218, HIST_Y = 148, HIST_W = 100, HIST_H = 14;
+	private static final int SEND_X = 12, SEND_Y = 133, SEND_W = 100, SEND_H = 15;
+	private static final int LIST_X = 218, LIST_Y = 59, LIST_W = 92, ROW_H = 15, LIST_ROWS = 5;
+	private static final int[] QUICK_X = {136, 160, 184};
+	private static final int QUICK_Y = 86, QUICK_W = 22, QUICK_H = 13;
 
 	private static final class Field {
 		final int x, y, w, h, max;
@@ -44,16 +59,17 @@ public class BankScreen extends Screen {
 	}
 
 	private int tab = 0;
-	private final Field fTarget = new Field(10, 64, 150, 14, 16, false);
-	private final Field fAmount = new Field(10, 94, 70, 14, 9, true);
-	private final Field fTitle = new Field(10, 124, 150, 14, 40, false);
+	private final Field fTarget = new Field(12, 59, 194, 13, 16, false);
+	private final Field fAmount = new Field(12, 86, 120, 13, 9, true);
+	private final Field fTitle = new Field(12, 113, 194, 13, 40, false);
 	private Field focus = fTarget;
 	private int scroll = 0;
+	private int onlineScroll = 0;
 	private int seenSeq = BankClient.statusSeq;
 
 	private float s = 1f;
 	private int ox, oy;
-	private List<String> online = new ArrayList<>();
+	private List<PlayerInfo> online = new ArrayList<>();
 	private long nextOnlineRefresh = 0;
 
 	public BankScreen() {
@@ -72,32 +88,36 @@ public class BankScreen extends Screen {
 	}
 
 	private static void panel(GuiGraphicsExtractor g, int x, int y, int w, int h) {
-		rect(g, x + 1, y, w - 2, h, 0xFF000000);
-		rect(g, x, y + 1, w, h - 2, 0xFF000000);
-		rect(g, x + 1, y + 1, w - 2, h - 2, 0xFF8B8B8B);
-		rect(g, x + 2, y + 1, w - 4, 2, 0xFFC6C6C6);
-		rect(g, x + 1, y + 2, 2, h - 4, 0xFFC6C6C6);
-		rect(g, x + 2, y + h - 3, w - 3, 2, 0xFF555555);
-		rect(g, x + w - 3, y + 2, 2, h - 4, 0xFF555555);
+		rect(g, x + 1, y, w - 2, h, 0xFF08150C);
+		rect(g, x, y + 1, w, h - 2, 0xFF08150C);
+		rect(g, x + 1, y + 1, w - 2, h - 2, 0xFF8FB08F);
+		rect(g, x + 3, y + 3, w - 6, h - 6, 0xFF0B2514);
+		rect(g, x + 4, y + 4, w - 8, h - 8, PANEL);
+		// delikatne "ziarno" tła
+		for (int i = 0; i < 70; i++) {
+			int px = 6 + (i * 53) % (w - 12);
+			int py = 6 + (i * 97) % (h - 12);
+			rect(g, px, py, 1, 1, 0x16FFFFFF);
+		}
 	}
 
-	private static void slot(GuiGraphicsExtractor g, int x, int y, int w, int h) {
-		rect(g, x, y, w, h, 0xFF2B2B2B);
-		rect(g, x + 1, y + 1, w - 1, h - 1, 0xFF9A9A9A);
-		rect(g, x + 1, y + 1, w - 2, h - 2, 0xFF555555);
+	private static void inset(GuiGraphicsExtractor g, int x, int y, int w, int h, int fill, boolean lit) {
+		rect(g, x, y, w, h, lit ? 0xFFE0F0E0 : 0xFF7A957A);
+		rect(g, x, y, w - 1, h - 1, 0xFF06140B);
+		rect(g, x + 1, y + 1, w - 2, h - 2, fill);
 	}
 
 	private void button(GuiGraphicsExtractor g, int x, int y, int w, int h, String label, int color, boolean hover) {
 		int c = hover ? lighten(color) : color;
-		rect(g, x, y, w, h, 0xFF000000);
+		rect(g, x, y, w, h, 0xFF06140B);
 		rect(g, x + 1, y + 1, w - 2, h - 2, c);
 		rect(g, x + 1, y + 1, w - 2, 1, lighten(c));
 		rect(g, x + 1, y + h - 2, w - 2, 1, darken(c));
-		g.text(this.font, label, x + (w - this.font.width(label)) / 2, y + (h - 8) / 2, 0xFFFFFFFF, true);
+		g.text(this.font, label, x + (w - this.font.width(label)) / 2, y + (h - 8) / 2 + 1, 0xFFFFFFFF, true);
 	}
 
 	private static int lighten(int c) {
-		int r = Math.min(255, ((c >> 16) & 0xFF) + 40), gr = Math.min(255, ((c >> 8) & 0xFF) + 40), b = Math.min(255, (c & 0xFF) + 40);
+		int r = Math.min(255, ((c >> 16) & 0xFF) + 36), gr = Math.min(255, ((c >> 8) & 0xFF) + 36), b = Math.min(255, (c & 0xFF) + 36);
 		return 0xFF000000 | (r << 16) | (gr << 8) | b;
 	}
 
@@ -105,37 +125,60 @@ public class BankScreen extends Screen {
 		return 0xFF000000 | (((c >> 17) & 0x7F) << 16) | (((c >> 9) & 0x7F) << 8) | ((c >> 1) & 0x7F);
 	}
 
+	private void label(GuiGraphicsExtractor g, String t, int x, int y) {
+		g.text(this.font, t, x, y, LABEL, false);
+	}
+
 	private void field(GuiGraphicsExtractor g, Field f, long now) {
-		slot(g, f.x, f.y, f.w, f.h);
+		inset(g, f.x, f.y, f.w, f.h, FIELD, focus == f);
 		String shown = this.font.plainSubstrByWidth(f.text, f.w - 8, true);
 		g.text(this.font, shown, f.x + 3, f.y + 3, 0xFFFFFFFF, false);
 		if (focus == f && (now / 500) % 2 == 0) {
-			int cx = f.x + 3 + this.font.width(shown);
-			rect(g, cx, f.y + 2, 1, 10, 0xFFFFFFFF);
+			rect(g, f.x + 3 + this.font.width(shown), f.y + 2, 1, f.h - 4, 0xFFFFFFFF);
 		}
 	}
 
-	private void candy(GuiGraphicsExtractor g, int x, int y, int h, int dir) {
-		for (int i = 0; i < h; i++) {
-			rect(g, x, y + 3 + i, 3, 1, ((i / 3) & 1) == 0 ? 0xFFE53935 : 0xFFFFFFFF);
+	private void stripe(GuiGraphicsExtractor g, int x, int y, int n) {
+		rect(g, x - 2, y - 2, 5, 5, ((n / 2) & 1) == 0 ? 0xFFD32F2F : 0xFFFFFFFF);
+	}
+
+	/** Duża laska cukrowa; dir=+1 lewa (haczyk na zewnątrz w lewo), dir=-1 prawa. */
+	private void candy(GuiGraphicsExtractor g, int shaftX, int top, int bottom, int dir) {
+		final int r = 9;
+		int cx = shaftX - dir * r;
+		int cy = top + r;
+		int n = 0;
+		for (int y = bottom; y >= cy; y -= 3, n++) {
+			stripe(g, shaftX, y, n);
 		}
-		for (int i = 0; i < 7; i++) {
-			int px = dir > 0 ? x + i : x + 2 - i;
-			rect(g, px, y, 1, 3, ((i / 3) & 1) == 0 ? 0xFFE53935 : 0xFFFFFFFF);
+		int steps = (int) Math.ceil(Math.PI * r / 3.0);
+		for (int i = 1; i <= steps; i++, n++) {
+			double a = Math.PI * i / steps;
+			int px = (int) Math.round(cx + dir * r * Math.cos(a));
+			int py = (int) Math.round(cy - r * Math.sin(a));
+			stripe(g, px, py, n);
+		}
+		for (int i = 1; i <= 3; i++, n++) {
+			stripe(g, cx - dir * r, cy + i * 3, n);
 		}
 	}
 
 	private void garland(GuiGraphicsExtractor g, long now) {
-		for (int x = 3; x < W - 3; x++) {
-			int y = 4 + (int) (3 * Math.abs(Math.sin((x - 3) * Math.PI / 32.0)));
-			rect(g, x, y, 1, 1, 0xFF1E5B2C);
+		for (int x = 4; x < W - 4; x++) {
+			int y = 5 + (int) (3 * Math.abs(Math.sin((x - 4) * Math.PI / 30.0)));
+			rect(g, x, y, 1, 1, 0xFF0E3A1A);
 		}
-		for (int k = 0; k < 16; k++) {
-			int bx = 3 + 16 * k;
-			int y = 4 + (int) (3 * Math.abs(Math.sin((bx - 3) * Math.PI / 32.0)));
+		for (int k = 0; k < 22; k++) {
+			int bx = 6 + 15 * k;
+			if (bx > W - 6) {
+				break;
+			}
+			int y = 5 + (int) (3 * Math.abs(Math.sin((bx - 4) * Math.PI / 30.0)));
 			int c = BULBS[k % 4];
 			boolean on = ((now / 450 + k) % 3) != 0;
-			if (!on) {
+			if (on) {
+				rect(g, bx - 2, y, 5, 7, (0x38 << 24) | (c & 0xFFFFFF));
+			} else {
 				c = darken(c);
 			}
 			rect(g, bx - 1, y + 1, 3, 4, c);
@@ -146,14 +189,16 @@ public class BankScreen extends Screen {
 	}
 
 	private void snowCap(GuiGraphicsExtractor g) {
-		for (int x = 2; x < W - 8; x += 7) {
+		rect(g, -2, -1, W + 4, 3, 0xFFFFFFFF);
+		for (int x = 0; x < W - 6; x += 9) {
 			int h = 2 + (x * 7 % 3);
-			rect(g, x, 1 - h, 7, h + 1, 0xFFFFFFFF);
+			rect(g, x, 1, 7, h, 0xFFFFFFFF);
+			rect(g, x, 1 + h, 7, 1, 0xFFC9DDF0);
 		}
 	}
 
 	private void falling(GuiGraphicsExtractor g, long now) {
-		for (int i = 0; i < 28; i++) {
+		for (int i = 0; i < 30; i++) {
 			int seed = i * 7919 + 13;
 			float speed = 12f + (seed % 17);
 			int px = (int) (((seed * 37L) % Math.max(1, this.width)) + 4 * Math.sin(now / 900.0 + i));
@@ -168,11 +213,10 @@ public class BankScreen extends Screen {
 		long now = System.currentTimeMillis();
 		BankClient.prune(now);
 
-		// przyciemnione tło + padający śnieg
 		g.fill(0, 0, this.width, this.height, 0xB0000000);
 		falling(g, now);
 
-		s = Math.min(1f, Math.min((this.width - 30f) / W, (this.height - 10f) / H));
+		s = Math.min(1f, Math.min((this.width - 56f) / W, (this.height - 12f) / H));
 		if (s < 0.3f) {
 			s = 0.3f;
 		}
@@ -198,19 +242,14 @@ public class BankScreen extends Screen {
 		g.pose().scale(s, s);
 
 		panel(g, 0, 0, W, H);
-		candy(g, -9, 40, 90, 1);
-		candy(g, W + 6, 40, 90, -1);
+		candy(g, -4, 14, 105, 1);
+		candy(g, W + 4, 14, 105, -1);
 		snowCap(g);
 		garland(g, now);
 
-		g.text(this.font, "Świąteczny Bank", 10, 18, 0xFFFFFFFF, true);
-		String bal = Long.toString(BankClient.balance);
-		int bw = this.font.width(bal);
-		g.blit(RenderPipelines.GUI_TEXTURED, BankHud.COIN, W - 14 - bw - 12, 17, 0, 0, 10, 10, 32, 32, 32, 32);
-		g.text(this.font, bal, W - 12 - bw, 18, 0xFFFFFFFF, true);
+		g.text(this.font, "Świąteczny Bank", 12, 15, 0xFFE8F3E8, true);
 
-		button(g, 10, 32, 70, 16, "Przelew", tab == 0 ? RED : GREEN, tab == 0 || in(lx, ly, 10, 32, 70, 16));
-		button(g, 84, 32, 70, 16, "Historia", tab == 1 ? RED : GREEN, tab == 1 || in(lx, ly, 84, 32, 70, 16));
+		button(g, TAB_X, TAB_Y, TAB_W, TAB_H, "Przelew", tab == 0 ? RED : SOFT, in(lx, ly, TAB_X, TAB_Y, TAB_W, TAB_H));
 
 		if (tab == 0) {
 			drawTransfer(g, lx, ly, now);
@@ -218,65 +257,85 @@ public class BankScreen extends Screen {
 			drawHistory(g);
 		}
 
+		// saldo (prawy dół) + przycisk Historia
+		String bal = Long.toString(BankClient.balance);
+		int total = 10 + 4 + this.font.width(bal);
+		int bx = LIST_X + (HIST_W - total) / 2;
+		g.blit(RenderPipelines.GUI_TEXTURED, BankHud.COIN, bx, 135, 0, 0, 10, 10, 32, 32, 32, 32);
+		g.text(this.font, bal, bx + 14, 136, 0xFFFFFFFF, true);
+		button(g, HIST_X, HIST_Y, HIST_W, HIST_H, "Historia", tab == 1 ? RED : SOFT, in(lx, ly, HIST_X, HIST_Y, HIST_W, HIST_H));
+
 		g.pose().popMatrix();
 	}
 
 	private void drawTransfer(GuiGraphicsExtractor g, int lx, int ly, long now) {
-		g.text(this.font, "Odbiorca:", 10, 54, 0xFF404040, false);
+		label(g, "odbiorca:", 12, 49);
 		field(g, fTarget, now);
-		g.text(this.font, "Kwota:", 10, 84, 0xFF404040, false);
+		label(g, "kwota:", 12, 76);
 		field(g, fAmount, now);
-		String[] q = {"10", "50", "MAX"};
+		String[] q = {"10", "50", "max"};
 		for (int i = 0; i < 3; i++) {
-			int bx = 84 + i * 26;
-			button(g, bx, 94, 24, 14, q[i], 0xFF6B6B6B, in(lx, ly, bx, 94, 24, 14));
+			button(g, QUICK_X[i], QUICK_Y, QUICK_W, QUICK_H, q[i], GREY, in(lx, ly, QUICK_X[i], QUICK_Y, QUICK_W, QUICK_H));
 		}
-		g.text(this.font, "Temat:", 10, 114, 0xFF404040, false);
+		label(g, "temat:", 12, 103);
 		field(g, fTitle, now);
 
-		g.text(this.font, "Online (kliknij):", 170, 54, 0xFF404040, false);
-		for (int i = 0; i < 6; i++) {
-			int y = 64 + i * 13;
-			slot(g, 170, y, 76, 12);
-			if (i < online.size()) {
-				String n = this.font.plainSubstrByWidth(online.get(i), 70);
-				boolean hov = in(lx, ly, 170, y, 76, 12);
-				g.text(this.font, n, 174, y + 2, hov ? 0xFFFFFF55 : 0xFFFFFFFF, false);
+		label(g, "online (kliknij):", LIST_X, 49);
+		int maxOnline = Math.max(0, online.size() - LIST_ROWS);
+		onlineScroll = Math.max(0, Math.min(onlineScroll, maxOnline));
+		for (int i = 0; i < LIST_ROWS; i++) {
+			int y = LIST_Y + i * ROW_H;
+			inset(g, LIST_X, y, LIST_W, ROW_H - 1, 0xFF2E5E36, false);
+			int idx = i + onlineScroll;
+			if (idx < online.size()) {
+				PlayerInfo info = online.get(idx);
+				PlayerFaceExtractor.extractRenderState(g, info.getSkin(), LIST_X + 2, y + 2, 10);
+				String n = this.font.plainSubstrByWidth(info.getProfile().name(), LIST_W - 18);
+				boolean hov = in(lx, ly, LIST_X, y, LIST_W, ROW_H - 1);
+				g.text(this.font, n, LIST_X + 15, y + 3, hov ? 0xFFFFFF55 : 0xFFFFFFFF, false);
 			}
 		}
+		// pasek przewijania listy online
+		int trackH = LIST_ROWS * ROW_H - 1;
+		rect(g, 313, LIST_Y, 5, trackH, 0xFF0B1F12);
+		if (maxOnline > 0) {
+			int barH = Math.max(8, trackH * LIST_ROWS / online.size());
+			int barY = LIST_Y + (trackH - barH) * onlineScroll / maxOnline;
+			rect(g, 313, barY, 5, barH, 0xFF8FB08F);
+		}
 
-		button(g, 10, 146, 80, 18, "Wyślij", GREEN, in(lx, ly, 10, 146, 80, 18));
+		button(g, SEND_X, SEND_Y, SEND_W, SEND_H, "Wyślij", GREEN, in(lx, ly, SEND_X, SEND_Y, SEND_W, SEND_H));
 		if (!BankClient.statusText.isEmpty()) {
-			String st = this.font.plainSubstrByWidth(BankClient.statusText, W - 20);
-			g.text(this.font, st, 10, 172, BankClient.statusOk ? 0xFF1B5E20 : 0xFF8B0000, false);
+			String st = this.font.plainSubstrByWidth(BankClient.statusText, 194);
+			g.text(this.font, st, 12, 152, BankClient.statusOk ? 0xFF8CE69A : 0xFFFF7B7B, false);
 		}
 	}
 
 	private void drawHistory(GuiGraphicsExtractor g) {
-		g.text(this.font, "Data", 10, 54, 0xFF404040, false);
-		g.text(this.font, "Kwota", 66, 54, 0xFF404040, false);
-		g.text(this.font, "Opis", 110, 54, 0xFF404040, false);
+		label(g, "data", 16, 49);
+		label(g, "kwota", 76, 49);
+		label(g, "opis", 122, 49);
 		List<HistoryEntry> list = BankClient.history;
-		int rows = 10;
+		int rows = 6;
 		int maxScroll = Math.max(0, list.size() - rows);
 		scroll = Math.max(0, Math.min(scroll, maxScroll));
-		slot(g, 8, 64, W - 16, rows * 12 + 4);
+		inset(g, 12, 59, W - 24, rows * 12 + 4, FIELD, false);
 		if (list.isEmpty()) {
-			g.text(this.font, "Brak transakcji.", 14, 70, 0xFFCCCCCC, false);
+			g.text(this.font, "Brak transakcji.", 18, 65, 0xFFB8CCB8, false);
 		}
 		for (int i = 0; i < rows && i + scroll < list.size(); i++) {
 			HistoryEntry e = list.get(i + scroll);
-			int y = 67 + i * 12;
-			g.text(this.font, DATE.format(new Date(e.time())), 12, y, 0xFFCCCCCC, false);
+			int y = 63 + i * 12;
+			g.text(this.font, DATE.format(new Date(e.time())), 16, y, 0xFFB8CCB8, false);
 			String amt = (e.amount() > 0 ? "+" : "") + e.amount();
-			g.text(this.font, amt, 66, y, e.amount() > 0 ? 0xFF55FF55 : 0xFFFF5555, false);
-			g.text(this.font, this.font.plainSubstrByWidth(describe(e), W - 126), 110, y, 0xFFFFFFFF, false);
+			g.text(this.font, amt, 76, y, e.amount() > 0 ? 0xFF55FF55 : 0xFFFF5555, false);
+			g.text(this.font, this.font.plainSubstrByWidth(describe(e), W - 12 - 122 - 10), 122, y, 0xFFFFFFFF, false);
 		}
 		if (maxScroll > 0) {
 			int trackH = rows * 12;
 			int barH = Math.max(8, trackH * rows / list.size());
-			int barY = 66 + (trackH - barH) * scroll / maxScroll;
-			rect(g, W - 14, barY, 3, barH, 0xFFC6C6C6);
+			int barY = 61 + (trackH - barH) * scroll / maxScroll;
+			rect(g, W - 18, barY, 3, barH, 0xFF8FB08F);
 		}
 	}
 
@@ -289,19 +348,18 @@ public class BankScreen extends Screen {
 	}
 
 	private void refreshOnline() {
-		List<String> names = new ArrayList<>();
+		List<PlayerInfo> list = new ArrayList<>();
 		Minecraft mc = Minecraft.getInstance();
 		if (mc.getConnection() != null && mc.player != null) {
 			String me = mc.player.getName().getString();
 			for (PlayerInfo info : mc.getConnection().getOnlinePlayers()) {
-				String n = info.getProfile().name();
-				if (!n.equals(me)) {
-					names.add(n);
+				if (!info.getProfile().name().equals(me)) {
+					list.add(info);
 				}
 			}
 		}
-		names.sort(Comparator.comparing(String::toLowerCase));
-		online = names;
+		list.sort(Comparator.comparing(i -> i.getProfile().name().toLowerCase()));
+		online = list;
 	}
 
 	// ---------- sterowanie ----------
@@ -318,11 +376,11 @@ public class BankScreen extends Screen {
 		int lx = (int) ((event.x() - ox) / s);
 		int ly = (int) ((event.y() - oy) / s);
 
-		if (in(lx, ly, 10, 32, 70, 16)) {
+		if (in(lx, ly, TAB_X, TAB_Y, TAB_W, TAB_H)) {
 			tab = 0;
 			return true;
 		}
-		if (in(lx, ly, 84, 32, 70, 16)) {
+		if (in(lx, ly, HIST_X, HIST_Y, HIST_W, HIST_H)) {
 			tab = 1;
 			return true;
 		}
@@ -333,21 +391,22 @@ public class BankScreen extends Screen {
 					return true;
 				}
 			}
-			String[] q = {"10", "50", "MAX"};
+			String[] q = {"10", "50", "max"};
 			for (int i = 0; i < 3; i++) {
-				if (in(lx, ly, 84 + i * 26, 94, 24, 14)) {
-					fAmount.text = q[i].equals("MAX") ? Long.toString(BankClient.balance) : q[i];
+				if (in(lx, ly, QUICK_X[i], QUICK_Y, QUICK_W, QUICK_H)) {
+					fAmount.text = q[i].equals("max") ? Long.toString(BankClient.balance) : q[i];
 					return true;
 				}
 			}
-			for (int i = 0; i < 6 && i < online.size(); i++) {
-				if (in(lx, ly, 170, 64 + i * 13, 76, 12)) {
-					fTarget.text = online.get(i);
+			for (int i = 0; i < LIST_ROWS; i++) {
+				int idx = i + onlineScroll;
+				if (idx < online.size() && in(lx, ly, LIST_X, LIST_Y + i * ROW_H, LIST_W, ROW_H - 1)) {
+					fTarget.text = online.get(idx).getProfile().name();
 					focus = fAmount;
 					return true;
 				}
 			}
-			if (in(lx, ly, 10, 146, 80, 18)) {
+			if (in(lx, ly, SEND_X, SEND_Y, SEND_W, SEND_H)) {
 				send();
 				return true;
 			}
@@ -357,8 +416,15 @@ public class BankScreen extends Screen {
 
 	@Override
 	public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+		int lx = (int) ((mouseX - ox) / s);
+		int ly = (int) ((mouseY - oy) / s);
+		int dir = -(int) Math.signum(scrollY);
 		if (tab == 1) {
-			scroll -= (int) Math.signum(scrollY) * 2;
+			scroll += dir * 2;
+			return true;
+		}
+		if (tab == 0 && in(lx, ly, LIST_X, LIST_Y, LIST_W + 8, LIST_ROWS * ROW_H)) {
+			onlineScroll += dir;
 			return true;
 		}
 		return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
