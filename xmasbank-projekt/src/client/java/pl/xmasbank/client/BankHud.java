@@ -2,7 +2,6 @@ package pl.xmasbank.client;
 
 import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.VanillaHudElements;
-import net.minecraft.Util;
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
@@ -33,7 +32,7 @@ public final class BankHud {
 		if (mc.player == null || mc.options.hideGui) {
 			return;
 		}
-		long now = Util.getMillis();
+		long now = System.currentTimeMillis();
 		BankClient.prune(now);
 		Font font = mc.font;
 
